@@ -18,6 +18,8 @@ sudo emerge --ask kde-apps/kmail-eselect-news
 
 Close KDE PIM applications, run `akonadictl restart` as your desktop user, then add **Gentoo News** in KMail's receiving-account settings.
 
+![KMail Configure Account dialog with Gentoo News selected](screenshots/kmail-configure-account.png)
+
 For other packaging environments or development builds, see [building from source](#building-from-source). For checking the installed resource, see [testing on Gentoo](#testing-the-installed-resource).
 
 ## Behaviour and boundaries
@@ -64,7 +66,7 @@ Synchronize the account, then check:
 - [ ] The folder does not advertise message creation or deletion.
 - [ ] Restarting KMail/Akonadi preserves the collection and message identities.
 
-An empty collection is valid if there are no relevant news items. Do not modify system news files just to test the resource.
+An empty collection is valid if there are no relevant news items, but the collection itself should still appear. An account showing Ready with no collection is not proof of a successful sync. If it occurs, manually synchronize the resource from Akonadi Console's Agents tab and inspect Browser for its collection. The account should be named Gentoo News unless renamed by the user. Do not modify system news files just to test the resource.
 
 ### Optional regression testing
 
