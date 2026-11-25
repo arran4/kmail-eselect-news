@@ -11,7 +11,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QLocale>
-#include <QMap>
+#include <QSet>
+#include <QUrl>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSettings>
@@ -19,7 +20,7 @@
 #include <KMime/Headers>
 
 namespace {
-const QRegularExpression newsId(QStringLiteral("^[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9+_-]+$"));
+const QRegularExpression newsId(QStringLiteral("^[0-9]{4}-[0-9]{2}-[0-9]{2}-[A-Za-z0-9+_.-]+$"));
 const QRegularExpression repoId(QStringLiteral("^[A-Za-z0-9_][A-Za-z0-9_-]*$"));
 
 bool readFile(const QString &path, QByteArray &data, QString &error)
@@ -37,30 +38,71 @@ bool readFile(const QString &path, QByteArray &data, QString &error)
     return true;
 }
 
-bool readState(const QString &path, bool read, QMap<QString, bool> &ids, QString &error)
+struct StateList {
+    QSet<QString> ids;
+    QByteArray status = "unavailable";
+    QByteArray membership(const QString &id) const
+    {
+        if (ids.contains(id))
+            return "yes";
+        return status == "ok" || status == "missing" ? "no" : "unknown";
+    }
+};
+
+StateList readState(const QString &path)
 {
+    StateList result;
     const QFileInfo info(path);
-    if (!info.exists())
-        return true;
-    if (!info.isFile() || !info.isReadable()) {
-        error = QStringLiteral("Unreadable news state file: ") + path;
-        return false;
+    const QFileInfo parent(info.absolutePath());
+    // Known paths require directory search permission, not directory listing.
+    if (!parent.isDir() || !parent.isExecutable()) {
+        qWarning().noquote() << "News state directory inaccessible:" << info.absolutePath();
+        return result;
+    }
+    if (!info.exists()) {
+        result.status = "missing";
+        return result;
+    }
+    if (!info.isFile()) {
+        qWarning().noquote() << "News state is not a regular file:" << path;
+        return result;
     }
     QByteArray data;
-    if (!readFile(path, data, error))
-        return false;
-    for (const auto &line : data.split('\n')) {
-        const QString id = QString::fromUtf8(line.trimmed());
-        if (id.isEmpty())
-            continue;
-        if (!newsId.match(id).hasMatch()) {
-            error = QStringLiteral("Invalid news ID in ") + path + QStringLiteral(": ") + id;
-            return false;
-        }
-        // Unread wins if the lists temporarily overlap.
-        ids.insert(id, read);
+    QString error;
+    if (!readFile(path, data, error)) {
+        qWarning().noquote() << error;
+        return result;
     }
-    return true;
+    result.status = "ok";
+    if (data.startsWith("\xef\xbb\xbf"))
+        data.remove(0, 3);
+    for (const auto &line : data.split('\n')) {
+        // Match Portage grabfile's whitespace and comment handling.
+        QStringList tokens = QString::fromUtf8(line).split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        QStringList fields;
+        for (const auto &token : tokens) {
+            if (token.startsWith(QLatin1Char('#')))
+                break;
+            fields.append(token);
+        }
+        if (fields.isEmpty())
+            continue;
+        const auto id = fields.join(QLatin1Char(' '));
+        if (!newsId.match(id).hasMatch()) {
+            qWarning().noquote() << "Ignoring malformed news state entry in" << path << ":" << id;
+            result.status = "partial";
+            continue;
+        }
+        result.ids.insert(id);
+    }
+    return result;
+}
+
+QByteArray headerPath(const QString &path)
+{
+    // Percent-encode control characters, non-ASCII and whitespace, but keep
+    // ordinary absolute paths readable. Never inject raw header delimiters.
+    return QUrl::toPercentEncoding(path, QByteArray("/-_.+"));
 }
 
 bool parseArticle(const QString &id, const QByteArray &raw, NewsArticle &article, QString &error)
@@ -101,6 +143,15 @@ QString NewsArticle::remoteId(const QString &repository) const
 QString NewsArticle::revision() const
 {
     QByteArray input = text;
+    // Include a schema version and diagnostic fields so cached MIME refreshes
+    // even if the article itself and its effective read flag have not changed.
+    input.append("\\nstate-diagnostics-v1\\n");
+    for (const auto &value : {sourceFile.toUtf8(), stateDirectory.toUtf8(),
+                             readMembership, unreadMembership, skipMembership,
+                             readFileStatus, unreadFileStatus, skipFileStatus}) {
+        input.append(value);
+        input.append('\0');
+    }
     input.append(read ? '\1' : '\0');
     input.append(skipped ? '\1' : '\0');
     return QString::fromLatin1(QCryptographicHash::hash(input, QCryptographicHash::Sha256).toHex());
@@ -115,6 +166,15 @@ std::shared_ptr<KMime::Message> NewsArticle::message(const QString &repository) 
                       "Date: ";
     wire += QLocale::c().toString(date, QStringLiteral("ddd, dd MMM yyyy")).toLatin1();
     wire += " 00:00:00 +0000\nMessage-ID: <" + identity + "@eselect-news.invalid>\n";
+    wire += "X-Gentoo-News-Repository: " + repository.toUtf8() + '\n';
+    wire += "X-Gentoo-News-ID: " + id.toUtf8() + '\n';
+    wire += "X-Gentoo-News-Source-File: " + headerPath(sourceFile) + '\n';
+    wire += "X-Gentoo-News-State-Directory: " + headerPath(stateDirectory) + '\n';
+    wire += "X-Gentoo-News-Read: " + readMembership + "; file=" + readFileStatus + '\n';
+    wire += "X-Gentoo-News-Unread: " + unreadMembership + "; file=" + unreadFileStatus + '\n';
+    wire += "X-Gentoo-News-Skip: " + skipMembership + "; file=" + skipFileStatus + '\n';
+    wire += QByteArray("X-Gentoo-News-Effective-State: ") + (read ? "read" : "unread") + '\n';
+    wire += QByteArray("X-Gentoo-News-Folder: ") + (skipped ? "skipped" : "repository") + '\n';
     wire += "MIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\n"
             "Content-Transfer-Encoding: base64\n\n";
     const QByteArray encoded = text.toBase64();
@@ -155,23 +215,17 @@ bool loadNews(const NewsSource &source, QList<NewsArticle> &output, QString &err
         return false;
     }
 
-    // State is advisory, never the inventory of messages. Missing files
-    // are normal; inaccessible or malformed state means all items unread.
+    // Each state file is independent: malformed skip state must not erase
+    // known read/unread state, and vice versa.
     const QDir state(source.stateDirectory);
-    const QFileInfo stateInfo(source.stateDirectory);
     const QString prefix = QStringLiteral("news-") + source.repository;
-    QMap<QString, bool> ids;
-    QMap<QString, bool> skippedIds;
-    QString stateError;
-    if (!stateInfo.isDir() || !stateInfo.isReadable() || !stateInfo.isExecutable()
-        || !readState(state.filePath(prefix + QStringLiteral(".read")), true, ids, stateError)
-        || !readState(state.filePath(prefix + QStringLiteral(".unread")), false, ids, stateError)
-        || !readState(state.filePath(prefix + QStringLiteral(".skip")), true, skippedIds, stateError)) {
-        qWarning().noquote() << "Gentoo news read state unavailable; showing all items as unread:"
-                             << (stateError.isEmpty() ? source.stateDirectory : stateError);
-        ids.clear();
-        skippedIds.clear();
-    }
+    const auto readStateList = readState(state.filePath(prefix + QStringLiteral(".read")));
+    const auto unreadStateList = readState(state.filePath(prefix + QStringLiteral(".unread")));
+    const auto skipStateList = readState(state.filePath(prefix + QStringLiteral(".skip")));
+    qInfo() << "Gentoo news state" << source.repository << source.stateDirectory
+            << "read" << readStateList.status << readStateList.ids.size()
+            << "unread" << unreadStateList.status << unreadStateList.ids.size()
+            << "skip" << skipStateList.status << skipStateList.ids.size();
 
     QList<NewsArticle> articles;
     const QDir news(source.newsDirectory);
@@ -193,10 +247,23 @@ bool loadNews(const NewsSource &source, QList<NewsArticle> &output, QString &err
         NewsArticle article;
         if (!parseArticle(id, data, article, error))
             return false;
-        // Portage adds relevant articles to both .skip and .unread.
-        // Only skip-only entries belong in Skipped; explicit state wins.
-        article.skipped = !ids.contains(id) && skippedIds.contains(id);
-        article.read = article.skipped || ids.value(id, false);
+        article.sourceFile = QFileInfo(path).absoluteFilePath();
+        article.stateDirectory = QFileInfo(source.stateDirectory).absoluteFilePath();
+        article.readMembership = readStateList.membership(id);
+        article.unreadMembership = unreadStateList.membership(id);
+        article.skipMembership = skipStateList.membership(id);
+        article.readFileStatus = readStateList.status;
+        article.unreadFileStatus = unreadStateList.status;
+        article.skipFileStatus = skipStateList.status;
+        // The unread file is already relevance-filtered. Only a positive
+        // unread match can create an unread message; read overlays it.
+        const bool explicitRead = readStateList.ids.contains(id);
+        const bool explicitUnread = unreadStateList.ids.contains(id);
+        article.read = explicitRead || !explicitUnread;
+        // Portage also records queued articles in .skip, so only skip-only
+        // membership with known absence from both other lists is Skipped.
+        article.skipped = skipStateList.ids.contains(id)
+            && article.readMembership == "no" && article.unreadMembership == "no";
         articles.append(std::move(article));
     }
     output = std::move(articles);

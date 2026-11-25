@@ -25,7 +25,15 @@ struct NewsArticle {
     QString author;
     QDate date;
     QByteArray text;
-    bool read = false;
+    QString sourceFile;
+    QString stateDirectory;
+    QByteArray readMembership;
+    QByteArray unreadMembership;
+    QByteArray skipMembership;
+    QByteArray readFileStatus;
+    QByteArray unreadFileStatus;
+    QByteArray skipFileStatus;
+    bool read = true;
     bool skipped = false; // Only in Portage's skip list, not explicitly read/unread.
 
     QString remoteId(const QString &repository) const;
