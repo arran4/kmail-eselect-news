@@ -1,0 +1,28 @@
+name: Publish experimental v0.1.0
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release-v0.1.0.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_SHA: ${{ github.sha }}
+    steps:
+      - name: Publish source prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v0.1.0 >/dev/null 2>&1; then
+            echo 'Release already exists'
+            exit 0
+          fi
+          gh release create v0.1.0 --target "$RELEASE_SHA" --prerelease \
+            --title "v0.1.0 — experimental Gentoo news resource" \
+            --notes "Initial read-only Akonadi resource with MIME conversion and Gentoo test instructions. Source only; compilation and live KMail integration are not yet verified."

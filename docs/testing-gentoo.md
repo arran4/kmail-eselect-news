@@ -12,7 +12,7 @@ sudo emerge --ask --oneshot dev-build/cmake dev-build/ninja dev-qt/qtbase:6 \
 # For older Gear: substitute kde-apps/kmime for kde-frameworks/kmime.
 git clone https://github.com/arran4/kmail-eselect-news.git
 cd kmail-eselect-news
-git switch sample/akonadi-eselect-news  # omit after merging to main
+git switch --detach v0.1.0  # or build from main
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
     -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_TESTING=ON &&
 cmake --build build &&
