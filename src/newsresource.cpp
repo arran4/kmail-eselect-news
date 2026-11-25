@@ -9,8 +9,9 @@
 #include <Akonadi/Collection>
 #include <Akonadi/Item>
 #include <Akonadi/ResourceBase>
-#include <QHash>
+#include <QDebug>
 #include <QTimer>
+#include <QMap>
 
 class NewsResource final : public Akonadi::ResourceBase
 {
@@ -31,71 +32,130 @@ public:
 protected:
     void retrieveCollections() override
     {
-        NewsSource source;
+        QStringList repositories;
         QString problem;
-        if (!discoverNewsSource(source, problem)) {
+        if (!discoverNewsRepositories(repositories, problem)) {
+            // Never replace the collection tree with an incomplete inventory.
+            qWarning().noquote() << problem;
             cancelTask(problem);
             return;
         }
+        Akonadi::Collection root;
+        root.setParentCollection(Akonadi::Collection::root());
+        // Keep the original default root RID for upgrades from v0.1.1.
+        root.setRemoteId(QStringLiteral("gentoo"));
+        root.setName(name().isEmpty() ? QStringLiteral("Gentoo News") : name());
+        root.setContentMimeTypes({Akonadi::Collection::mimeType()});
+        root.setRights(Akonadi::Collection::ReadOnly);
+        root.setEnabled(true);
 
-        Akonadi::Collection collection;
-        collection.setParentCollection(Akonadi::Collection::root());
-        collection.setRemoteId(source.repository);
-        collection.setName(QStringLiteral("Gentoo News (%1)").arg(source.repository));
-        collection.setContentMimeTypes({Akonadi::Collection::mimeType(), KMime::Message::mimeType()});
-        collection.setRights(Akonadi::Collection::ReadOnly);
         Akonadi::CachePolicy policy;
         policy.setInheritFromParent(false);
         policy.setSyncOnDemand(true);
         policy.setIntervalCheckTime(15);
-        collection.setCachePolicy(policy);
-        collectionsRetrieved({collection});
+
+        Akonadi::Collection::List collections{root};
+        for (const auto &repository : repositories) {
+            Akonadi::Collection news;
+            news.setParentCollection(root);
+            news.setRemoteId(repository + QStringLiteral("/news"));
+            news.setName(repository);
+            news.setContentMimeTypes({Akonadi::Collection::mimeType(), KMime::Message::mimeType()});
+            news.setRights(Akonadi::Collection::ReadOnly);
+            news.setEnabled(true);
+            news.setCachePolicy(policy);
+            collections.append(news);
+
+            Akonadi::Collection skipped;
+            skipped.setParentCollection(news);
+            skipped.setRemoteId(repository + QStringLiteral("/skipped"));
+            skipped.setName(QStringLiteral("Skipped"));
+            skipped.setContentMimeTypes({KMime::Message::mimeType()});
+            skipped.setRights(Akonadi::Collection::ReadOnly);
+            skipped.setEnabled(true);
+            skipped.setCachePolicy(policy);
+            collections.append(skipped);
+        }
+        qInfo() << "Publishing Gentoo News collection tree for" << repositories;
+        collectionsRetrieved(collections);
     }
 
     void retrieveItems(const Akonadi::Collection &collection) override
     {
+        if (collection.remoteId() == QStringLiteral("gentoo")) {
+            // The root is a container, not a mailbox.
+            itemsRetrieved({});
+            return;
+        }
         NewsSource source;
         QList<NewsArticle> articles;
         QString problem;
-        if (!discoverNewsSource(source, problem)
-            || collection.remoteId() != source.repository
+        const auto rid = collection.remoteId();
+        const bool skipped = rid.endsWith(QStringLiteral("/skipped"));
+        const auto suffix = skipped ? QStringLiteral("/skipped") : QStringLiteral("/news");
+        if (!rid.endsWith(suffix)
+            || !discoverNewsSource(rid.chopped(suffix.size()), source, problem)
             || !loadNews(source, articles, problem)) {
-            cancelTask(problem.isEmpty() ? QStringLiteral("Unexpected news collection") : problem);
+            const auto message = problem.isEmpty() ? QStringLiteral("Unexpected news collection") : problem;
+            qWarning().noquote() << message;
+            cancelTask(message);
             return;
         }
         Akonadi::Item::List items;
         for (const auto &article : articles) {
+            if (article.skipped != skipped)
+                continue;
             Akonadi::Item item(KMime::Message::mimeType());
             item.setRemoteId(article.remoteId(source.repository));
             item.setRemoteRevision(article.revision());
             fill(item, article, source.repository);
             items.append(std::move(item));
         }
+        qInfo() << "Synchronizing Gentoo News items:" << rid << items.size();
         itemsRetrieved(items);
     }
 
     bool retrieveItems(const Akonadi::Item::List &requested, const QSet<QByteArray> &parts) override
     {
         Q_UNUSED(parts)
-        NewsSource source;
-        QList<NewsArticle> articles;
-        QString problem;
-        if (!discoverNewsSource(source, problem) || !loadNews(source, articles, problem)) {
-            Q_EMIT error(problem);
-            return false;
-        }
-        QHash<QString, const NewsArticle *> byId;
-        for (const auto &article : articles)
-            byId.insert(article.remoteId(source.repository), &article);
-
+        // Requests can contain articles belonging to different repositories.
+        // Load only the repositories needed by this batch, once each.
+        QMap<QString, QList<NewsArticle>> articlesByRepo;
         Akonadi::Item::List items;
         for (auto item : requested) {
-            const auto *article = byId.value(item.remoteId(), nullptr);
-            if (!article) {
-                Q_EMIT error(QStringLiteral("News item no longer exists: ") + item.remoteId());
+            const auto rid = item.remoteId();
+            const auto separator = rid.indexOf(QLatin1Char('/'));
+            if (separator <= 0) {
+                Q_EMIT error(QStringLiteral("Invalid news item remote ID: ") + rid);
                 return false;
             }
-            fill(item, *article, source.repository);
+            const auto repository = rid.left(separator);
+            if (!articlesByRepo.contains(repository)) {
+                NewsSource source;
+                QList<NewsArticle> articles;
+                QString problem;
+                if (!discoverNewsSource(repository, source, problem) || !loadNews(source, articles, problem)) {
+                    qWarning().noquote() << problem;
+                    Q_EMIT error(problem);
+                    return false;
+                }
+                articlesByRepo.insert(repository, std::move(articles));
+            }
+            const auto &articles = articlesByRepo.constFind(repository).value();
+            const NewsArticle *article = nullptr;
+            for (const auto &candidate : articles) {
+                if (candidate.remoteId(repository) == rid) {
+                    article = &candidate;
+                    break;
+                }
+            }
+            if (!article) {
+                Q_EMIT error(QStringLiteral("News item no longer exists: ") + rid);
+                return false;
+            }
+            // Payload retrieval must not change flags while a folder migration
+            // is pending. The collection sync owns read-state updates.
+            fill(item, *article, repository, false);
             items.append(std::move(item));
         }
         itemsRetrieved(items);
@@ -103,15 +163,17 @@ protected:
     }
 
 private:
-    static void fill(Akonadi::Item &item, const NewsArticle &article, const QString &repository)
+    static void fill(Akonadi::Item &item, const NewsArticle &article, const QString &repository, bool updateFlags = true)
     {
         auto message = article.message(repository);
         item.setSize(message->encodedContent().size());
         item.setPayload(message);
-        Akonadi::Item::Flags flags;
-        if (article.read)
-            flags.insert(QByteArrayLiteral("\\SEEN"));
-        item.setFlags(flags);
+        if (updateFlags) {
+            Akonadi::Item::Flags flags;
+            if (article.read)
+                flags.insert(QByteArrayLiteral("\\SEEN"));
+            item.setFlags(flags);
+        }
     }
 };
 

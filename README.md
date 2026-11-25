@@ -24,14 +24,14 @@ For other packaging environments or development builds, see [building from sourc
 
 ## Behaviour and boundaries
 
-- One read-only collection, **Gentoo News (gentoo)**, for the selected Portage repository.
-- Uses `portageq get_repo_path / gentoo` to find the local repository; reads English news under `metadata/news`.
-- Only IDs in Portage's `news-<repository>.read` and `.unread` files are included, matching the relevant-news view rather than every published notice. Duplicates are collapsed; unread wins if both lists contain an ID.
+- One **Gentoo News** account with a read-only mail folder per configured Portage repository, named after the repository (e.g. `gentoo`, `guru`). Each repository has a **Skipped** child folder, containing skip-only notices marked read. Repositories without news have empty folders. Folder discovery is independent of individual repository contents and state access; a failed repository inventory does not replace the cached tree.
+- Uses `portageq get_repos /` to enumerate repositories and `portageq get_repo_path / <repository>` to resolve each repository separately. Reads English news under each repository's `metadata/news`. An explicit `repository` setting restricts discovery to one repository; `newsDirectory` is an optional single-repository fixture override.
+- All available English articles in each repository are shown. Portage's `news-<repository>.read`, `.unread` and `.skip` files supply advisory state. Explicit unread wins over read, and both take precedence over `.skip`: Portage records previously queued news in `.skip`, including currently unread items. Skip-only articles go into the repository's Skipped folder with the seen flag set. Unknown items stay unread in the repository folder. If state is inaccessible or malformed, all articles are unread in the repository folder; no root access is needed. This intentionally includes articles outside eselect's relevant-news list.
 - Title becomes the subject; publication date becomes the message date (midnight UTC); the entire original news text, including its metadata and authors, becomes the UTF-8 plain-text body. Synthetic sender/recipient and stable Message-ID make clear these are locally generated messages.
-- Stable Akonadi remote ID is repository + news ID; revision hashes content and source read state. Edits update the same item. A successful full snapshot removes notices no longer in either list (e.g. after purge).
+- Stable Akonadi remote ID is repository + news ID; revision hashes content and source read state. Edits update the same item. A successful full snapshot removes notices no longer present in the repository. Purging eselect state does not remove an article from KMail; it may move into Skipped if its skip marker remains, or become unread if its state is no longer known. Message-ID and repository-scoped remote ID remain stable across classification changes; Akonadi may recreate its local item when a notice changes folders.
 - The source is **never written**. KMail reading a message does not acknowledge it to Portage. Use eselect separately; the next sync reflects the source state. KMail may restrict local flag changes on a read-only folder.
-- Missing or malformed referenced articles fail the snapshot rather than silently deleting existing cached mail. A missing state file is treated as empty; an inaccessible source/state directory is an error.
-- Initially one repository, English only, no GUI configuration, no backend search or outgoing transport. No privilege elevation. Periodic polling requested via Akonadi cache policy (15 minutes); manual refresh is supported.
+- Unavailable repositories, unreadable source directories or malformed article files fail the affected snapshot rather than silently deleting cached mail. Missing English translations are skipped. Stale state IDs are ignored. State errors are non-fatal.
+- English only, no GUI configuration, no backend search or outgoing transport. No privilege elevation. Periodic polling requested via Akonadi cache policy (15 minutes); manual refresh is supported.
 - This is an experimental resource; an ebuild is available in the private overlay. Live build and integration must be verified on a KDE PIM 6 host.
 
 ## Architecture
@@ -58,30 +58,33 @@ If the resource is not listed in KMail, close KDE PIM applications and run `akon
 
 Synchronize the account, then check:
 
-- [ ] Relevant Gentoo notices appear as ordinary email messages.
+- [ ] A child folder named after each configured repository appears beneath Gentoo News, even if an individual repository has no news.
+- [ ] Available English Gentoo notices appear as ordinary email messages.
 - [ ] Subjects match news titles, dates match publication dates, and the full article appears in the message body (not an attachment).
-- [ ] Initial read/unread state matches Portage.
+- [ ] Known read/unread state matches Portage when accessible; articles without known state appear unread.
+- [ ] Each repository has a Skipped child folder; skip-only notices appear there as read, and explicitly unread notices are never moved there.
 - [ ] Repeated synchronization does not create duplicates.
 - [ ] Opening a notice does not change Portage's read state.
 - [ ] The folder does not advertise message creation or deletion.
 - [ ] Restarting KMail/Akonadi preserves the collection and message identities.
 
-An empty collection is valid if there are no relevant news items, but the collection itself should still appear. An account showing Ready with no collection is not proof of a successful sync. If it occurs, manually synchronize the resource from Akonadi Console's Agents tab and inspect Browser for its collection. The account should be named Gentoo News unless renamed by the user. Do not modify system news files just to test the resource.
+An empty collection is valid if a repository has no news, but the collection itself should still appear. An account showing Ready with no collection is not proof of a successful sync. If it occurs, manually synchronize the resource from Akonadi Console's Agents tab and inspect Browser for its collection. The account should be named Gentoo News unless renamed by the user. Do not modify system news files just to test the resource.
 
 ### Optional regression testing
 
-To exercise updates, purges and error recovery even when no real notices are available, use the [isolated integration fixture](#optional-isolated-integration-testing). Developers can run the automated tests as described in [building from source](#building-from-source).
+To exercise updates, state fallback and error recovery even when no real notices are available, use the [isolated integration fixture](#optional-isolated-integration-testing). Developers can run the automated tests as described in [building from source](#building-from-source).
 
 ### Troubleshooting
 
 ```sh
 akonadictl status
+portageq get_repos /
 portageq get_repo_path / gentoo
 ls -l /var/lib/gentoo/news/
 journalctl --user -b --no-pager | grep -Ei 'akonadi|eselect.news' | tail -n 100
 ```
 
-Check resource status, synchronize and inspect collection/item metadata in Akonadi Console. Confirm your desktop user can read the news and state directories. Do not run KMail or Akonadi as root or reset the Akonadi database.
+Check resource status, synchronize and inspect collection/item metadata in Akonadi Console. Confirm your desktop user can read the repository news directory. Portage state readability is optional. Do not run KMail or Akonadi as root or reset the Akonadi database.
 
 ### Uninstall
 
@@ -96,7 +99,7 @@ Close KDE PIM applications and restart Akonadi if necessary. For a manually inst
 
 ### Validation status
 
-The smoke test and integration checks are expected behaviour, not recorded successful results. Build and live integration have not yet been verified.
+The smoke test and integration checks are expected behaviour, not recorded successful results. The Gentoo ebuild has installed and KMail lists the account type and resource instance. Visible folders and message synchronization still need host verification.
 
 ## Building from source
 
@@ -109,7 +112,7 @@ For development or packaging where a prebuilt package is unavailable. Gentoo use
 - Qt 6 development libraries (Core, and Test for automated tests).
 - KDE PIM 6 Akonadi development libraries and KMime (either KF6Mime or KPim6Mime CMake package, matching your installed stack).
 - A running KDE PIM 6 session with Akonadi MIME support and KMail for live testing.
-- A local Gentoo repository and Portage news state, or an isolated test fixture.
+- A local Gentoo repository (Portage news state is optional), or an isolated test fixture.
 
 Install dependencies through your distribution's package manager. No particular checkout path, CMake generator, or release tag is required.
 
@@ -176,13 +179,18 @@ mv "$fixture/state/news-gentoo.unread" "$fixture/state/news-gentoo.read"
 # After refresh: same message, now read.
 # Edit the notice, then refresh: same ID, updated body.
 printf '\nA revised paragraph.\n' >> "$fixture/news/2026-01-01-example/2026-01-01-example.en.txt"
-# Temporarily reference a missing article: refresh should fail without wiping the cache.
-printf '%s\n' 2026-01-02-missing > "$fixture/state/news-gentoo.unread"
-# Refresh and check the error in Akonadi Console; remove the broken reference.
+# Invalid state: refresh should keep the same article, now unread.
+printf '%s\n' ../invalid > "$fixture/state/news-gentoo.unread"
+# Remove the invalid state and refresh to recover the read flag.
 rm "$fixture/state/news-gentoo.unread"
-# Refresh to recover. Then simulate purge:
+# Simulate a retained skip marker after purging read state: article moves to Skipped, read.
+printf '%s\n' 2026-01-01-example > "$fixture/state/news-gentoo.skip"
 rm "$fixture/state/news-gentoo.read"
-# Refresh: the collection should now be empty.
+# Refresh and check Skipped. Then remove skip state and refresh:
+rm "$fixture/state/news-gentoo.skip"
+# Article returns to the main repository folder as unread.
+# Remove the fixture article itself; after refresh the folder remains, empty.
+rm "$fixture/news/2026-01-01-example/2026-01-01-example.en.txt"
 ```
 
 Remove the fixture resource through KMail's Receiving settings or Akonadi Console before cleaning up. Only after confirming this is the fixture you created:

@@ -9,6 +9,7 @@
 #include <QDate>
 #include <QList>
 #include <QString>
+#include <QStringList>
 #include <memory>
 #include <KMime/Message>
 
@@ -25,6 +26,7 @@ struct NewsArticle {
     QDate date;
     QByteArray text;
     bool read = false;
+    bool skipped = false; // Only in Portage's skip list, not explicitly read/unread.
 
     QString remoteId(const QString &repository) const;
     QString revision() const;
@@ -33,4 +35,10 @@ struct NewsArticle {
 
 // Returns false without modifying the output on errors.
 bool loadNews(const NewsSource &source, QList<NewsArticle> &output, QString &error);
-bool discoverNewsSource(NewsSource &source, QString &error);
+// Read configuration without probing Portage or the source filesystem.
+NewsSource configuredNewsSource();
+// Empty repository configuration means all repositories. Explicit overrides
+// restrict discovery to one repository (also used for integration fixtures).
+bool parseRepositoryList(const QString &text, QStringList &repositories, QString &error);
+bool discoverNewsRepositories(QStringList &repositories, QString &error);
+bool discoverNewsSource(const QString &repository, NewsSource &source, QString &error);
