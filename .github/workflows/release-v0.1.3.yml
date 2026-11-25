@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Arran Ubels <arran4@gmail.com>
+# SPDX-License-Identifier: BSD-2-Clause
+
+name: Publish experimental v0.1.3
+on:
+  push:
+    branches: [release/v0.1.3]
+    paths: ['.github/workflows/release-v0.1.3.yml']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_SHA: "94043433b76ad2759b1785fde35fd07e6eec2a73"
+    steps:
+      - name: Publish source prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v0.1.3 >/dev/null 2>&1; then
+            echo 'Release already exists'
+            exit 0
+          fi
+          gh release create v0.1.3 --target "$RELEASE_SHA" --prerelease \
+            --title "v0.1.3 — Portage news classification and diagnostics" \
+            --notes "Correct read precedence and treat .skip as previously queued history. Notices known absent from all three state files appear in Skipped and are always read. Only explicit unread membership not overridden by read membership produces unread mail. State files are parsed independently. Add source filename, state memberships and effective classification to message headers. Live compilation and integration remain unverified."
