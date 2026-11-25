@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Gentoo News
+Comment=Read local Gentoo eselect news items as email
+Type=AkonadiResource
+Exec=akonadi_eselect_news_resource
+Icon=mail-message-new
+X-Akonadi-MimeTypes=message/rfc822
+X-Akonadi-Capabilities=Resource
+X-Akonadi-Identifier=akonadi_eselect_news_resource
+X-Akonadi-Custom-HasLocalStorage=true
