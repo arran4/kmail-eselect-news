@@ -260,10 +260,12 @@ bool loadNews(const NewsSource &source, QList<NewsArticle> &output, QString &err
         const bool explicitRead = readStateList.ids.contains(id);
         const bool explicitUnread = unreadStateList.ids.contains(id);
         article.read = explicitRead || !explicitUnread;
-        // Portage also records queued articles in .skip, so only skip-only
-        // membership with known absence from both other lists is Skipped.
-        article.skipped = skipStateList.ids.contains(id)
-            && article.readMembership == "no" && article.unreadMembership == "no";
+        // Portage adds relevant articles to .skip when they are queued.
+        // Any known membership means the article belongs in the main folder.
+        // Skipped means not selected by Portage, not membership in .skip.
+        // If absence cannot be established, keep the article in the main folder.
+        article.skipped = article.readMembership == "no"
+            && article.unreadMembership == "no" && article.skipMembership == "no";
         articles.append(std::move(article));
     }
     output = std::move(articles);

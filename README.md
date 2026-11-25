@@ -24,11 +24,11 @@ For other packaging environments or development builds, see [building from sourc
 
 ## Behaviour and boundaries
 
-- One **Gentoo News** account with a read-only mail folder per configured Portage repository, named after the repository (e.g. `gentoo`, `guru`). Each repository has a **Skipped** child folder, containing skip-only notices marked read. Repositories without news have empty folders. Folder discovery is independent of individual repository contents and state access; a failed repository inventory does not replace the cached tree.
+- One **Gentoo News** account with a read-only mail folder per configured Portage repository, named after the repository (e.g. `gentoo`, `guru`). Each repository has a **Skipped** child folder, containing notices not selected by Portage, always marked read. Repositories without news have empty folders. Folder discovery is independent of individual repository contents and state access; a failed repository inventory does not replace the cached tree.
 - Uses `portageq get_repos /` to enumerate repositories and `portageq get_repo_path / <repository>` to resolve each repository separately. Reads English news under each repository's `metadata/news`. An explicit `repository` setting restricts discovery to one repository; `newsDirectory` is an optional single-repository fixture override.
-- All available English articles in each repository are shown. Portage's `news-<repository>.read`, `.unread` and `.skip` files supply advisory state. Only positive membership in `.unread` makes an article unread; `.read` overrides it. Articles with no known unread membership are read, including when state is inaccessible. Portage also records previously queued articles in `.skip`. Articles in `.skip` and known absent from both explicit lists go into Skipped, always read. Each state file is parsed independently; malformed entries are logged and ignored without discarding valid entries. No root access is needed. This intentionally includes articles outside eselect's relevant-news list.
+- All available English articles in each repository are shown. Portage's `news-<repository>.read`, `.unread` and `.skip` files supply advisory state. Only positive membership in `.unread` makes an article unread; `.read` overrides it. Articles with no known unread membership are read, including when state is inaccessible. Portage records previously queued articles in `.skip`; membership in any of the three files places the article in the main repository folder. Only articles known absent from all three files go into Skipped, always read. If any membership is unknown due to incomplete or inaccessible state, the article stays in the main folder rather than being assumed irrelevant. A missing state file in an accessible state directory counts as an empty list. Each state file is parsed independently; malformed entries are logged and ignored without discarding valid entries. No root access is needed. This intentionally includes articles outside eselect's relevant-news list.
 - Title becomes the subject; publication date becomes the message date (midnight UTC); the entire original news text, including its metadata and authors, becomes the UTF-8 plain-text body. Synthetic sender/recipient and stable Message-ID make clear these are locally generated messages.
-- Stable Akonadi remote ID is repository + news ID; revision hashes content and source read state. Edits update the same item. A successful full snapshot removes notices no longer present in the repository. Purging eselect state does not remove an article from KMail; it may move into Skipped if its skip marker remains, or remain read in the repository folder if its state is no longer known. Message-ID and repository-scoped remote ID remain stable across classification changes; Akonadi may recreate its local item when a notice changes folders.
+- Stable Akonadi remote ID is repository + news ID; revision hashes content and source read state. Edits update the same item. A successful full snapshot removes notices no longer present in the repository. Purging eselect state does not remove an article from KMail; it remains in the repository folder if its skip marker remains, moves to Skipped if all three memberships are known absent, or remains in the repository folder if its state is unknown. Message-ID and repository-scoped remote ID remain stable across classification changes; Akonadi may recreate its local item when a notice changes folders.
 - The source is **never written**. KMail reading a message does not acknowledge it to Portage. Use eselect separately; the next sync reflects the source state. KMail may restrict local flag changes on a read-only folder.
 - Unavailable repositories, unreadable source directories or malformed article files fail the affected snapshot rather than silently deleting cached mail. Missing English translations are skipped. Stale state IDs are ignored. State errors are non-fatal.
 - English only, no GUI configuration, no backend search or outgoing transport. No privilege elevation. Periodic polling requested via Akonadi cache policy (15 minutes); manual refresh is supported.
@@ -62,7 +62,7 @@ Synchronize the account, then check:
 - [ ] Available English Gentoo notices appear as ordinary email messages.
 - [ ] Subjects match news titles, dates match publication dates, and the full article appears in the message body (not an attachment).
 - [ ] Known read/unread state matches Portage when accessible; only explicitly unread articles not overridden by read state appear unread.
-- [ ] Each repository has a Skipped child folder; skip-only notices appear there as read, and explicitly unread notices are never moved there.
+- [ ] Each repository has a Skipped child folder; notices absent from all three lists appear there as read; previously queued notices (including skip-only entries) and notices with uncertain state remain in the main folder.
 - [ ] Repeated synchronization does not create duplicates.
 - [ ] Opening a notice does not change Portage's read state.
 - [ ] The folder does not advertise message creation or deletion.
@@ -187,12 +187,16 @@ printf '\nA revised paragraph.\n' >> "$fixture/news/2026-01-01-example/2026-01-0
 printf '%s\n' ../invalid > "$fixture/state/news-gentoo.unread"
 # Remove the invalid state and refresh to recover the read flag.
 rm "$fixture/state/news-gentoo.unread"
-# Simulate a retained skip marker after purging read state: article moves to Skipped, read.
+# Simulate a retained skip marker after purging read state: article stays in the main folder, read.
 printf '%s\n' 2026-01-01-example > "$fixture/state/news-gentoo.skip"
 rm "$fixture/state/news-gentoo.read"
-# Refresh and check Skipped. Then remove skip state and refresh:
+# Refresh, then remove skip state and refresh:
 rm "$fixture/state/news-gentoo.skip"
-# Article returns to the main repository folder as read.
+# Article moves to Skipped, still read.
+# Simulate Portage selecting it again:
+printf '%s\n' 2026-01-01-example > "$fixture/state/news-gentoo.unread"
+printf '%s\n' 2026-01-01-example > "$fixture/state/news-gentoo.skip"
+# Refresh: article returns to the main repository folder, unread.
 # Remove the fixture article itself; after refresh the folder remains, empty.
 rm "$fixture/news/2026-01-01-example/2026-01-01-example.en.txt"
 ```
