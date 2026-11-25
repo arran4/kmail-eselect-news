@@ -2,6 +2,19 @@
 
 An experimental native Akonadi resource for Gentoo GLEP 42 news, shown in KMail as ordinary plain-text emails. No IMAP, SMTP, maildir export, root service or network access is involved.
 
+## Installation
+
+On Gentoo, install from [arrans-private-overlay](https://github.com/arran4/arrans-private-overlay) (requires access to the private repositories):
+
+```sh
+sudo emaint sync -r arrans-private-overlay &&
+sudo emerge --ask kde-apps/kmail-eselect-news
+```
+
+Close KDE PIM applications, run `akonadictl restart` as your desktop user, then add **Gentoo News** in KMail's receiving-account settings.
+
+For other packaging environments or development builds, see [building from source](docs/building.md). For checking the installed resource, see [testing on Gentoo](docs/testing-gentoo.md).
+
 ## Behaviour and boundaries
 
 - One read-only collection, **Gentoo News (gentoo)**, for the selected Portage repository.
@@ -12,12 +25,10 @@ An experimental native Akonadi resource for Gentoo GLEP 42 news, shown in KMail 
 - The source is **never written**. KMail reading a message does not acknowledge it to Portage. Use eselect separately; the next sync reflects the source state. KMail may restrict local flag changes on a read-only folder.
 - Missing or malformed referenced articles fail the snapshot rather than silently deleting existing cached mail. A missing state file is treated as empty; an inaccessible source/state directory is an error.
 - Initially one repository, English only, no GUI configuration, no backend search or outgoing transport. No privilege elevation. Periodic polling requested via Akonadi cache policy (15 minutes); manual refresh is supported.
-- This is an experimental sample, not a production Gentoo package. Live build and integration must be verified on a KDE PIM 6 host.
+- This is an experimental resource; an ebuild is available in the private overlay. Live build and integration must be verified on a KDE PIM 6 host.
 
 ## Architecture
 
 `NewsResource : Akonadi::ResourceBase` implements collection discovery, item synchronization, and batch payload retrieval. `NewsSource` and `loadNews` implement the independent filesystem backend; `NewsArticle::message` converts each record to a KMime message. The resource is its own process registered via a desktop metadata file.
-
-See [Gentoo host testing instructions](docs/testing-gentoo.md).
 
 References: [GLEP 42](https://www.gentoo.org/glep/glep-0042.html), [Akonadi ResourceBase](https://github.com/KDE/akonadi/blob/master/src/agentbase/resourcebase.h), [KDE Maildir resource](https://github.com/KDE/kdepim-runtime/tree/master/resources/maildir).
