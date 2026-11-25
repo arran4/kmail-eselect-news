@@ -95,6 +95,50 @@ private Q_SLOTS:
         QCOMPARE(items.size(), 3);
     }
 
+    void skippedState()
+    {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        QDir root(temp.path());
+        QVERIFY(root.mkpath("state"));
+        const QStringList ids{"2026-01-01-unread", "2026-01-02-read",
+                              "2026-01-03-skipped", "2026-01-04-unknown"};
+        for (const auto &id : ids) {
+            QVERIFY(root.mkpath("news/" + id));
+            QVERIFY(put(root.filePath("news/" + id + "/" + id + ".en.txt"), "Title: Test\n\nBody.\n"));
+        }
+        const NewsSource source{root.filePath("news"), root.filePath("state"), "gentoo"};
+        QVERIFY(put(root.filePath("state/news-gentoo.skip"),
+                    "2026-01-01-unread\n2026-01-02-read\n2026-01-03-skipped\n2026-01-05-stale\n"));
+        QVERIFY(put(root.filePath("state/news-gentoo.read"), "2026-01-01-unread\n2026-01-02-read\n"));
+        QVERIFY(put(root.filePath("state/news-gentoo.unread"), "2026-01-01-unread\n"));
+        QList<NewsArticle> articles;
+        QString error;
+        QVERIFY2(loadNews(source, articles, error), qPrintable(error));
+        QCOMPARE(articles.size(), 4);
+        QVERIFY(!articles[0].read && !articles[0].skipped);
+        QVERIFY(articles[1].read && !articles[1].skipped);
+        QVERIFY(articles[2].read && articles[2].skipped);
+        QVERIFY(!articles[3].read && !articles[3].skipped);
+
+        // Explicit unread state restores a skipped notice to the main folder.
+        const auto id = articles[2].remoteId("gentoo");
+        const auto messageId = articles[2].message("gentoo")->messageID()->asUnicodeString();
+        const auto revision = articles[2].revision();
+        QVERIFY(put(root.filePath("state/news-gentoo.unread"), "2026-01-01-unread\n2026-01-03-skipped\n"));
+        QVERIFY2(loadNews(source, articles, error), qPrintable(error));
+        QVERIFY(!articles[2].read && !articles[2].skipped);
+        QCOMPARE(articles[2].remoteId("gentoo"), id);
+        QCOMPARE(articles[2].message("gentoo")->messageID()->asUnicodeString(), messageId);
+        QVERIFY(articles[2].revision() != revision);
+
+        // A bad skip list must not misclassify any article as skipped.
+        QVERIFY(put(root.filePath("state/news-gentoo.skip"), "../invalid\n"));
+        QVERIFY2(loadNews(source, articles, error), qPrintable(error));
+        for (const auto &article : articles)
+            QVERIFY(!article.read && !article.skipped);
+    }
+
     void repositoryList()
     {
         QStringList names;
@@ -119,6 +163,7 @@ private Q_SLOTS:
         QVERIFY(put(root.filePath("gentoo/metadata/news/" + id + "/" + id + ".en.txt"), "Title: Gentoo\n\nBody.\n"));
         QVERIFY(put(root.filePath("overlay/metadata/news/" + id + "/" + id + ".en.txt"), "Title: Overlay\n\nBody.\n"));
         QVERIFY(put(root.filePath("state/news-gentoo.read"), id.toUtf8() + '\n'));
+        QVERIFY(put(root.filePath("state/news-overlay.skip"), id.toUtf8() + '\n'));
         const NewsSource gentoo{root.filePath("gentoo/metadata/news"), root.filePath("state"), "gentoo"};
         const NewsSource overlay{root.filePath("overlay/metadata/news"), root.filePath("state"), "overlay"};
         const NewsSource empty{root.filePath("empty/metadata/news"), root.filePath("state"), "empty"};
@@ -129,7 +174,8 @@ private Q_SLOTS:
         QCOMPARE(a.size(), 1);
         QCOMPARE(b.size(), 1);
         QVERIFY(a[0].read);
-        QVERIFY(!b[0].read);
+        QVERIFY(b[0].read && b[0].skipped);
+        QVERIFY(!a[0].skipped);
         QVERIFY(a[0].remoteId("gentoo") != b[0].remoteId("overlay"));
         QVERIFY(a[0].message("gentoo")->messageID()->asUnicodeString()
                 != b[0].message("overlay")->messageID()->asUnicodeString());

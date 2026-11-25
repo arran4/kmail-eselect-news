@@ -26,6 +26,7 @@ struct NewsArticle {
     QDate date;
     QByteArray text;
     bool read = false;
+    bool skipped = false; // Only in Portage's skip list, not explicitly read/unread.
 
     QString remoteId(const QString &repository) const;
     QString revision() const;

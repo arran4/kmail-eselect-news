@@ -102,6 +102,7 @@ QString NewsArticle::revision() const
 {
     QByteArray input = text;
     input.append(read ? '\1' : '\0');
+    input.append(skipped ? '\1' : '\0');
     return QString::fromLatin1(QCryptographicHash::hash(input, QCryptographicHash::Sha256).toHex());
 }
 
@@ -160,13 +161,16 @@ bool loadNews(const NewsSource &source, QList<NewsArticle> &output, QString &err
     const QFileInfo stateInfo(source.stateDirectory);
     const QString prefix = QStringLiteral("news-") + source.repository;
     QMap<QString, bool> ids;
+    QMap<QString, bool> skippedIds;
     QString stateError;
     if (!stateInfo.isDir() || !stateInfo.isReadable() || !stateInfo.isExecutable()
         || !readState(state.filePath(prefix + QStringLiteral(".read")), true, ids, stateError)
-        || !readState(state.filePath(prefix + QStringLiteral(".unread")), false, ids, stateError)) {
+        || !readState(state.filePath(prefix + QStringLiteral(".unread")), false, ids, stateError)
+        || !readState(state.filePath(prefix + QStringLiteral(".skip")), true, skippedIds, stateError)) {
         qWarning().noquote() << "Gentoo news read state unavailable; showing all items as unread:"
                              << (stateError.isEmpty() ? source.stateDirectory : stateError);
         ids.clear();
+        skippedIds.clear();
     }
 
     QList<NewsArticle> articles;
@@ -189,7 +193,10 @@ bool loadNews(const NewsSource &source, QList<NewsArticle> &output, QString &err
         NewsArticle article;
         if (!parseArticle(id, data, article, error))
             return false;
-        article.read = ids.value(id, false);
+        // Portage adds relevant articles to both .skip and .unread.
+        // Only skip-only entries belong in Skipped; explicit state wins.
+        article.skipped = !ids.contains(id) && skippedIds.contains(id);
+        article.read = article.skipped || ids.value(id, false);
         articles.append(std::move(article));
     }
     output = std::move(articles);

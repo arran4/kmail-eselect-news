@@ -60,11 +60,21 @@ protected:
             news.setParentCollection(root);
             news.setRemoteId(repository + QStringLiteral("/news"));
             news.setName(repository);
-            news.setContentMimeTypes({KMime::Message::mimeType()});
+            news.setContentMimeTypes({Akonadi::Collection::mimeType(), KMime::Message::mimeType()});
             news.setRights(Akonadi::Collection::ReadOnly);
             news.setEnabled(true);
             news.setCachePolicy(policy);
             collections.append(news);
+
+            Akonadi::Collection skipped;
+            skipped.setParentCollection(news);
+            skipped.setRemoteId(repository + QStringLiteral("/skipped"));
+            skipped.setName(QStringLiteral("Skipped"));
+            skipped.setContentMimeTypes({KMime::Message::mimeType()});
+            skipped.setRights(Akonadi::Collection::ReadOnly);
+            skipped.setEnabled(true);
+            skipped.setCachePolicy(policy);
+            collections.append(skipped);
         }
         qInfo() << "Publishing Gentoo News collection tree for" << repositories;
         collectionsRetrieved(collections);
@@ -81,7 +91,8 @@ protected:
         QList<NewsArticle> articles;
         QString problem;
         const auto rid = collection.remoteId();
-        const auto suffix = QStringLiteral("/news");
+        const bool skipped = rid.endsWith(QStringLiteral("/skipped"));
+        const auto suffix = skipped ? QStringLiteral("/skipped") : QStringLiteral("/news");
         if (!rid.endsWith(suffix)
             || !discoverNewsSource(rid.chopped(suffix.size()), source, problem)
             || !loadNews(source, articles, problem)) {
@@ -92,13 +103,15 @@ protected:
         }
         Akonadi::Item::List items;
         for (const auto &article : articles) {
+            if (article.skipped != skipped)
+                continue;
             Akonadi::Item item(KMime::Message::mimeType());
             item.setRemoteId(article.remoteId(source.repository));
             item.setRemoteRevision(article.revision());
             fill(item, article, source.repository);
             items.append(std::move(item));
         }
-        qInfo() << "Synchronizing Gentoo News items:" << source.repository << items.size();
+        qInfo() << "Synchronizing Gentoo News items:" << rid << items.size();
         itemsRetrieved(items);
     }
 
@@ -140,7 +153,9 @@ protected:
                 Q_EMIT error(QStringLiteral("News item no longer exists: ") + rid);
                 return false;
             }
-            fill(item, *article, repository);
+            // Payload retrieval must not change flags while a folder migration
+            // is pending. The collection sync owns read-state updates.
+            fill(item, *article, repository, false);
             items.append(std::move(item));
         }
         itemsRetrieved(items);
@@ -148,15 +163,17 @@ protected:
     }
 
 private:
-    static void fill(Akonadi::Item &item, const NewsArticle &article, const QString &repository)
+    static void fill(Akonadi::Item &item, const NewsArticle &article, const QString &repository, bool updateFlags = true)
     {
         auto message = article.message(repository);
         item.setSize(message->encodedContent().size());
         item.setPayload(message);
-        Akonadi::Item::Flags flags;
-        if (article.read)
-            flags.insert(QByteArrayLiteral("\\SEEN"));
-        item.setFlags(flags);
+        if (updateFlags) {
+            Akonadi::Item::Flags flags;
+            if (article.read)
+                flags.insert(QByteArrayLiteral("\\SEEN"));
+            item.setFlags(flags);
+        }
     }
 };
 
