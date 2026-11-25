@@ -24,14 +24,14 @@ For other packaging environments or development builds, see [building from sourc
 
 ## Behaviour and boundaries
 
-- An account root, **Gentoo News (gentoo)**, containing a read-only **News** mail folder. The folder tree is published independently of source discovery.
-- Uses `portageq get_repo_path / gentoo` to find the local repository; reads English news under `metadata/news`.
-- All available English articles in the selected repository are shown. Portage's `news-<repository>.read` and `.unread` files supply read flags only: known read articles are marked read, unread wins on overlap, unknown items remain unread. If state is inaccessible or malformed, all articles are unread; no root access is needed. This intentionally includes articles outside eselect's relevant-news list.
+- One **Gentoo News** account with a read-only mail folder per configured Portage repository, named after the repository (e.g. `gentoo`, `guru`). Repositories without news have empty folders. Folder discovery is independent of individual repository contents and state access; a failed repository inventory does not replace the cached tree.
+- Uses `portageq get_repos /` to enumerate repositories and `portageq get_repo_path / <repository>` to resolve each repository separately. Reads English news under each repository's `metadata/news`. An explicit `repository` setting restricts discovery to one repository; `newsDirectory` is an optional single-repository fixture override.
+- All available English articles in each repository are shown. Portage's `news-<repository>.read` and `.unread` files supply read flags only: known read articles are marked read, unread wins on overlap, unknown items remain unread. If state is inaccessible or malformed, all articles are unread; no root access is needed. This intentionally includes articles outside eselect's relevant-news list.
 - Title becomes the subject; publication date becomes the message date (midnight UTC); the entire original news text, including its metadata and authors, becomes the UTF-8 plain-text body. Synthetic sender/recipient and stable Message-ID make clear these are locally generated messages.
 - Stable Akonadi remote ID is repository + news ID; revision hashes content and source read state. Edits update the same item. A successful full snapshot removes notices no longer present in the repository. Purging eselect state does not remove an article from KMail; it may become unread because its read status is no longer known.
 - The source is **never written**. KMail reading a message does not acknowledge it to Portage. Use eselect separately; the next sync reflects the source state. KMail may restrict local flag changes on a read-only folder.
-- Unreadable source directories or malformed article files fail the snapshot rather than silently deleting cached mail. Missing English translations are skipped. Stale state IDs are ignored. State errors are non-fatal.
-- Initially one repository, English only, no GUI configuration, no backend search or outgoing transport. No privilege elevation. Periodic polling requested via Akonadi cache policy (15 minutes); manual refresh is supported.
+- Unavailable repositories, unreadable source directories or malformed article files fail the affected snapshot rather than silently deleting cached mail. Missing English translations are skipped. Stale state IDs are ignored. State errors are non-fatal.
+- English only, no GUI configuration, no backend search or outgoing transport. No privilege elevation. Periodic polling requested via Akonadi cache policy (15 minutes); manual refresh is supported.
 - This is an experimental resource; an ebuild is available in the private overlay. Live build and integration must be verified on a KDE PIM 6 host.
 
 ## Architecture
@@ -58,7 +58,7 @@ If the resource is not listed in KMail, close KDE PIM applications and run `akon
 
 Synchronize the account, then check:
 
-- [ ] A **News** child folder appears beneath Gentoo News, even if the source is empty or temporarily inaccessible.
+- [ ] A child folder named after each configured repository appears beneath Gentoo News, even if an individual repository has no news.
 - [ ] Available English Gentoo notices appear as ordinary email messages.
 - [ ] Subjects match news titles, dates match publication dates, and the full article appears in the message body (not an attachment).
 - [ ] Known read/unread state matches Portage when accessible; articles without known state appear unread.
@@ -67,7 +67,7 @@ Synchronize the account, then check:
 - [ ] The folder does not advertise message creation or deletion.
 - [ ] Restarting KMail/Akonadi preserves the collection and message identities.
 
-An empty collection is valid if there are no relevant news items, but the collection itself should still appear. An account showing Ready with no collection is not proof of a successful sync. If it occurs, manually synchronize the resource from Akonadi Console's Agents tab and inspect Browser for its collection. The account should be named Gentoo News unless renamed by the user. Do not modify system news files just to test the resource.
+An empty collection is valid if a repository has no news, but the collection itself should still appear. An account showing Ready with no collection is not proof of a successful sync. If it occurs, manually synchronize the resource from Akonadi Console's Agents tab and inspect Browser for its collection. The account should be named Gentoo News unless renamed by the user. Do not modify system news files just to test the resource.
 
 ### Optional regression testing
 
@@ -77,6 +77,7 @@ To exercise updates, state fallback and error recovery even when no real notices
 
 ```sh
 akonadictl status
+portageq get_repos /
 portageq get_repo_path / gentoo
 ls -l /var/lib/gentoo/news/
 journalctl --user -b --no-pager | grep -Ei 'akonadi|eselect.news' | tail -n 100

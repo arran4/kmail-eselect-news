@@ -9,6 +9,7 @@
 #include <QDate>
 #include <QList>
 #include <QString>
+#include <QStringList>
 #include <memory>
 #include <KMime/Message>
 
@@ -35,4 +36,8 @@ struct NewsArticle {
 bool loadNews(const NewsSource &source, QList<NewsArticle> &output, QString &error);
 // Read configuration without probing Portage or the source filesystem.
 NewsSource configuredNewsSource();
-bool discoverNewsSource(NewsSource &source, QString &error);
+// Empty repository configuration means all repositories. Explicit overrides
+// restrict discovery to one repository (also used for integration fixtures).
+bool parseRepositoryList(const QString &text, QStringList &repositories, QString &error);
+bool discoverNewsRepositories(QStringList &repositories, QString &error);
+bool discoverNewsSource(const QString &repository, NewsSource &source, QString &error);

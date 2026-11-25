@@ -95,6 +95,51 @@ private Q_SLOTS:
         QCOMPARE(items.size(), 3);
     }
 
+    void repositoryList()
+    {
+        QStringList names;
+        QString error;
+        QVERIFY2(parseRepositoryList("guru gentoo arrans-overlay gentoo\n", names, error), qPrintable(error));
+        QCOMPARE(names, (QStringList{"arrans-overlay", "gentoo", "guru"}));
+        QVERIFY(!parseRepositoryList("gentoo ../bad", names, error));
+        QCOMPARE(names.size(), 3);
+        QVERIFY(!parseRepositoryList("", names, error));
+    }
+
+    void repositoryIsolation()
+    {
+        QTemporaryDir temp;
+        QVERIFY(temp.isValid());
+        QDir root(temp.path());
+        const QString id = QStringLiteral("2026-01-01-shared");
+        QVERIFY(root.mkpath("gentoo/metadata/news/" + id));
+        QVERIFY(root.mkpath("overlay/metadata/news/" + id));
+        QVERIFY(root.mkpath("empty"));
+        QVERIFY(root.mkpath("state"));
+        QVERIFY(put(root.filePath("gentoo/metadata/news/" + id + "/" + id + ".en.txt"), "Title: Gentoo\n\nBody.\n"));
+        QVERIFY(put(root.filePath("overlay/metadata/news/" + id + "/" + id + ".en.txt"), "Title: Overlay\n\nBody.\n"));
+        QVERIFY(put(root.filePath("state/news-gentoo.read"), id.toUtf8() + '\n'));
+        const NewsSource gentoo{root.filePath("gentoo/metadata/news"), root.filePath("state"), "gentoo"};
+        const NewsSource overlay{root.filePath("overlay/metadata/news"), root.filePath("state"), "overlay"};
+        const NewsSource empty{root.filePath("empty/metadata/news"), root.filePath("state"), "empty"};
+        QList<NewsArticle> a, b;
+        QString error;
+        QVERIFY2(loadNews(gentoo, a, error), qPrintable(error));
+        QVERIFY2(loadNews(overlay, b, error), qPrintable(error));
+        QCOMPARE(a.size(), 1);
+        QCOMPARE(b.size(), 1);
+        QVERIFY(a[0].read);
+        QVERIFY(!b[0].read);
+        QVERIFY(a[0].remoteId("gentoo") != b[0].remoteId("overlay"));
+        QVERIFY(a[0].message("gentoo")->messageID()->asUnicodeString()
+                != b[0].message("overlay")->messageID()->asUnicodeString());
+        QVERIFY2(loadNews(empty, b, error), qPrintable(error));
+        QVERIFY(b.isEmpty());
+        const NewsSource missing{root.filePath("missing/metadata/news"), root.filePath("state"), "missing"};
+        QVERIFY(!loadNews(missing, a, error));
+        QCOMPARE(a.size(), 1);
+    }
+
     void emptyState()
     {
         QTemporaryDir temp;
