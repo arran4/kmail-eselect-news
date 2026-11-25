@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Arran Ubels <arran4@gmail.com>
+# SPDX-License-Identifier: BSD-2-Clause
+
+name: Publish experimental v0.1.2
+on:
+  push:
+    branches: [release/v0.1.2]
+    paths: ['.github/workflows/release-v0.1.2.yml']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_SHA: "b7e4f1e8ee7222ebb9b63b28dd21e20d3f253861"
+    steps:
+      - name: Publish source prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v0.1.2 >/dev/null 2>&1; then
+            echo 'Release already exists'
+            exit 0
+          fi
+          gh release create v0.1.2 --target "$RELEASE_SHA" --prerelease \
+            --title "v0.1.2 — per-repository news folders" \
+            --notes "Discover configured Portage repositories and expose a mailbox for each, with a Skipped child folder. Read, unread and skip state are advisory, with explicit state taking precedence; skip-only items are marked read. Source only; live folder and message synchronization remain unverified."
