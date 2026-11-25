@@ -21,7 +21,16 @@ Requires Gentoo with a working KDE PIM 6 / Akonadi and KMail installation.
 
 ### From the public overlay (recommended)
 
-The package is available in [arran4/arrans_overlay](https://github.com/arran4/arrans_overlay) (Portage repository name `arrans-overlay`). Follow the overlay's [setup instructions](https://github.com/arran4/arrans_overlay/blob/main/readme.md) first if you have not configured it, including its required masters.
+The package is available in [arran4/arrans_overlay](https://github.com/arran4/arrans_overlay) (Portage repository name `arrans-overlay`). If it is not already configured, install `eselect-repository` and enable the overlay:
+
+```sh
+sudo emerge --ask app-eselect/eselect-repository
+sudo eselect repository enable arrans-overlay
+```
+
+The overlay currently requires the `gentoo`, `guru` and `hyproverlay` repositories as masters. Ensure they are configured and synchronized first (see the [overlay setup instructions](https://github.com/arran4/arrans_overlay/blob/main/readme.md) and [repository configuration](https://github.com/arran4/arrans_overlay/blob/main/metadata/layout.conf)). Do not re-enable repositories already configured on your system.
+
+Then install the package:
 
 ```sh
 sudo emaint sync -r arrans-overlay
