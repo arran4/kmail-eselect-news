@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Arran Ubels <arran4@gmail.com>
+# SPDX-License-Identifier: BSD-2-Clause
+
 cmake_minimum_required(VERSION 3.22)
 project(kmail-eselect-news VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
@@ -6,6 +9,8 @@ set(CMAKE_AUTOMOC ON)
 include(GNUInstallDirs)
 include(CTest)
 find_package(Qt6 CONFIG REQUIRED COMPONENTS Core)
+find_package(ECM 6.0 CONFIG REQUIRED)
+list(APPEND CMAKE_MODULE_PATH "${ECM_MODULE_PATH}")
 find_package(KPim6Akonadi CONFIG REQUIRED)
 find_package(KF6Mime CONFIG QUIET)
 if(TARGET KF6::Mime)

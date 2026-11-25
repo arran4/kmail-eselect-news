@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Arran Ubels <arran4@gmail.com>
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
+
 #pragma once
 
 #include <QByteArray>
