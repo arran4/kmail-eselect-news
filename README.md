@@ -38,6 +38,12 @@ For other packaging environments or development builds, see [building from sourc
 
 References: [GLEP 42](https://www.gentoo.org/glep/glep-0042.html), [Akonadi ResourceBase](https://github.com/KDE/akonadi/blob/master/src/agentbase/resourcebase.h), [KDE Maildir resource](https://github.com/KDE/kdepim-runtime/tree/master/resources/maildir).
 
+## Account registration
+
+The screenshot below records the resource registered in KMail's Receiving settings during the initial Gentoo host test. It shows the pre-fix internal account identifier and Ready status, not a successful mail synchronization.
+
+![KMail Receiving settings showing the registered Gentoo News resource](screenshots/kmail-receiving.png)
+
 ## Testing the installed resource
 
 This guide assumes the resource is installed and you have a working KMail/Akonadi session. See the [installation instructions](#installation) if needed. No source checkout or manual installation is required.
