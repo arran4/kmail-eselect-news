@@ -33,4 +33,6 @@ struct NewsArticle {
 
 // Returns false without modifying the output on errors.
 bool loadNews(const NewsSource &source, QList<NewsArticle> &output, QString &error);
+// Read configuration without probing Portage or the source filesystem.
+NewsSource configuredNewsSource();
 bool discoverNewsSource(NewsSource &source, QString &error);

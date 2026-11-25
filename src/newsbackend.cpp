@@ -7,6 +7,7 @@
 
 #include <QCryptographicHash>
 #include <QDir>
+#include <QDebug>
 #include <QFile>
 #include <QFileInfo>
 #include <QLocale>
@@ -38,8 +39,13 @@ bool readFile(const QString &path, QByteArray &data, QString &error)
 
 bool readState(const QString &path, bool read, QMap<QString, bool> &ids, QString &error)
 {
-    if (!QFileInfo::exists(path))
+    const QFileInfo info(path);
+    if (!info.exists())
         return true;
+    if (!info.isFile() || !info.isReadable()) {
+        error = QStringLiteral("Unreadable news state file: ") + path;
+        return false;
+    }
     QByteArray data;
     if (!readFile(path, data, error))
         return false;
@@ -130,40 +136,57 @@ bool loadNews(const NewsSource &source, QList<NewsArticle> &output, QString &err
         error = QStringLiteral("Invalid repository name: ") + source.repository;
         return false;
     }
-    for (const auto &path : {source.newsDirectory, source.stateDirectory}) {
-        const QFileInfo info(path);
-        if (!info.isDir() || !info.isReadable()) {
-            error = QStringLiteral("Missing or unreadable directory: ") + path;
-            return false;
-        }
+    const QFileInfo newsInfo(source.newsDirectory);
+    if (!newsInfo.isDir() || !newsInfo.isReadable() || !newsInfo.isExecutable()) {
+        error = QStringLiteral("Missing or unreadable news directory: ") + source.newsDirectory;
+        return false;
     }
 
+    // State is advisory, never the inventory of messages. Missing files
+    // are normal; inaccessible or malformed state means all items unread.
     const QDir state(source.stateDirectory);
+    const QFileInfo stateInfo(source.stateDirectory);
     const QString prefix = QStringLiteral("news-") + source.repository;
     QMap<QString, bool> ids;
-    if (!readState(state.filePath(prefix + QStringLiteral(".read")), true, ids, error)
-        || !readState(state.filePath(prefix + QStringLiteral(".unread")), false, ids, error))
-        return false;
+    QString stateError;
+    if (!stateInfo.isDir() || !stateInfo.isReadable() || !stateInfo.isExecutable()
+        || !readState(state.filePath(prefix + QStringLiteral(".read")), true, ids, stateError)
+        || !readState(state.filePath(prefix + QStringLiteral(".unread")), false, ids, stateError)) {
+        qWarning().noquote() << "Gentoo news read state unavailable; showing all items as unread:"
+                             << (stateError.isEmpty() ? source.stateDirectory : stateError);
+        ids.clear();
+    }
 
     QList<NewsArticle> articles;
     const QDir news(source.newsDirectory);
-    for (auto it = ids.cbegin(); it != ids.cend(); ++it) {
-        const QString id = it.key();
+    const auto directories = news.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const auto &directory : directories) {
+        const QString id = directory.fileName();
+        if (!newsId.match(id).hasMatch())
+            continue;
+        if (!directory.isReadable() || !directory.isExecutable()) {
+            error = QStringLiteral("Unreadable news item directory: ") + directory.absoluteFilePath();
+            return false;
+        }
+        const QString path = QDir(directory.absoluteFilePath()).filePath(id + QStringLiteral(".en.txt"));
+        if (!QFileInfo::exists(path))
+            continue; // No English translation.
         QByteArray data;
-        if (!readFile(news.filePath(id + QLatin1Char('/') + id + QStringLiteral(".en.txt")), data, error))
+        if (!readFile(path, data, error))
             return false;
         NewsArticle article;
         if (!parseArticle(id, data, article, error))
             return false;
-        article.read = it.value();
+        article.read = ids.value(id, false);
         articles.append(std::move(article));
     }
     output = std::move(articles);
     return true;
 }
 
-bool discoverNewsSource(NewsSource &source, QString &error)
+NewsSource configuredNewsSource()
 {
+    NewsSource source;
     const QString config = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
         + QStringLiteral("/kmail-eselect-news.ini");
     QSettings settings(config, QSettings::IniFormat);
@@ -171,6 +194,13 @@ bool discoverNewsSource(NewsSource &source, QString &error)
     source.stateDirectory = settings.value(QStringLiteral("stateDirectory"),
                                          QStringLiteral("/var/lib/gentoo/news")).toString();
     source.newsDirectory = settings.value(QStringLiteral("newsDirectory")).toString();
+    return source;
+}
+
+bool discoverNewsSource(NewsSource &source, QString &error)
+{
+    error.clear();
+    source = configuredNewsSource();
     if (!repoId.match(source.repository).hasMatch()) {
         error = QStringLiteral("Invalid repository name: ") + source.repository;
         return false;

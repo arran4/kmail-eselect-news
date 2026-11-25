@@ -10,6 +10,7 @@
 #include <Akonadi/Item>
 #include <Akonadi/ResourceBase>
 #include <QHash>
+#include <QDebug>
 #include <QTimer>
 
 class NewsResource final : public Akonadi::ResourceBase
@@ -31,36 +32,49 @@ public:
 protected:
     void retrieveCollections() override
     {
-        NewsSource source;
-        QString problem;
-        if (!discoverNewsSource(source, problem)) {
-            cancelTask(problem);
-            return;
-        }
+        // Publish the collection tree even when source discovery fails.
+        const auto source = configuredNewsSource();
+        Akonadi::Collection root;
+        root.setParentCollection(Akonadi::Collection::root());
+        root.setRemoteId(source.repository);
+        root.setName(QStringLiteral("Gentoo News (%1)").arg(source.repository));
+        root.setContentMimeTypes({Akonadi::Collection::mimeType()});
+        root.setRights(Akonadi::Collection::ReadOnly);
+        root.setEnabled(true);
 
-        Akonadi::Collection collection;
-        collection.setParentCollection(Akonadi::Collection::root());
-        collection.setRemoteId(source.repository);
-        collection.setName(QStringLiteral("Gentoo News (%1)").arg(source.repository));
-        collection.setContentMimeTypes({Akonadi::Collection::mimeType(), KMime::Message::mimeType()});
-        collection.setRights(Akonadi::Collection::ReadOnly);
+        Akonadi::Collection news;
+        news.setParentCollection(root);
+        news.setRemoteId(source.repository + QStringLiteral("/news"));
+        news.setName(QStringLiteral("News"));
+        news.setContentMimeTypes({KMime::Message::mimeType()});
+        news.setRights(Akonadi::Collection::ReadOnly);
+        news.setEnabled(true);
         Akonadi::CachePolicy policy;
         policy.setInheritFromParent(false);
         policy.setSyncOnDemand(true);
         policy.setIntervalCheckTime(15);
-        collection.setCachePolicy(policy);
-        collectionsRetrieved({collection});
+        news.setCachePolicy(policy);
+        qInfo() << "Publishing Gentoo News collection tree for" << source.repository;
+        collectionsRetrieved({root, news});
     }
 
     void retrieveItems(const Akonadi::Collection &collection) override
     {
+        const auto configured = configuredNewsSource();
+        if (collection.remoteId() == configured.repository) {
+            // The root is a container, not a mailbox.
+            itemsRetrieved({});
+            return;
+        }
         NewsSource source;
         QList<NewsArticle> articles;
         QString problem;
-        if (!discoverNewsSource(source, problem)
-            || collection.remoteId() != source.repository
+        if (collection.remoteId() != configured.repository + QStringLiteral("/news")
+            || !discoverNewsSource(source, problem)
             || !loadNews(source, articles, problem)) {
-            cancelTask(problem.isEmpty() ? QStringLiteral("Unexpected news collection") : problem);
+            const auto message = problem.isEmpty() ? QStringLiteral("Unexpected news collection") : problem;
+            qWarning().noquote() << message;
+            cancelTask(message);
             return;
         }
         Akonadi::Item::List items;
@@ -71,6 +85,7 @@ protected:
             fill(item, article, source.repository);
             items.append(std::move(item));
         }
+        qInfo() << "Synchronizing Gentoo News items:" << items.size();
         itemsRetrieved(items);
     }
 
@@ -81,6 +96,7 @@ protected:
         QList<NewsArticle> articles;
         QString problem;
         if (!discoverNewsSource(source, problem) || !loadNews(source, articles, problem)) {
+            qWarning().noquote() << problem;
             Q_EMIT error(problem);
             return false;
         }

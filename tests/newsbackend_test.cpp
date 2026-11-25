@@ -44,9 +44,10 @@ private Q_SLOTS:
         QList<NewsArticle> items;
         QString error;
         QVERIFY2(loadNews(source, items, error), qPrintable(error));
-        QCOMPARE(items.size(), 2);
+        QCOMPARE(items.size(), 3);
         QVERIFY(!items[0].read);
         QVERIFY(items[1].read);
+        QVERIFY(!items[2].read); // No known state is not a reason to hide an article.
         QCOMPARE(items[0].remoteId("gentoo"), QStringLiteral("gentoo/2026-01-01-demo"));
         auto message = items[0].message("gentoo");
         QCOMPARE(message->subject()->asUnicodeString(), QString::fromUtf8("UTF-8 caf\xc3\xa9"));
@@ -62,11 +63,36 @@ private Q_SLOTS:
         QCOMPARE(items[0].message("gentoo")->messageID()->asUnicodeString(), stableId);
 
         QVERIFY(put(root.filePath("state/news-gentoo.unread"), "../unsafe\n"));
-        QVERIFY(!loadNews(source, items, error));
-        QCOMPARE(items.size(), 2); // Failed snapshot never replaces last good data.
+        QVERIFY2(loadNews(source, items, error), qPrintable(error));
+        QCOMPARE(items.size(), 3);
+        for (const auto &article : items)
+            QVERIFY(!article.read);
+
+        // Stale state entries do not represent articles or block a sync.
         QVERIFY(put(root.filePath("state/news-gentoo.unread"), "2026-01-04-missing\n"));
+        QVERIFY2(loadNews(source, items, error), qPrintable(error));
+        QCOMPARE(items.size(), 3);
+        QVERIFY(items[0].read);
+
+        auto noState = source;
+        noState.stateDirectory = root.filePath("nonexistent-state");
+        QVERIFY2(loadNews(noState, items, error), qPrintable(error));
+        QCOMPARE(items.size(), 3);
+        for (const auto &article : items)
+            QVERIFY(!article.read);
+
+        // Simulate inaccessible/malformed state via a directory in place of a file.
+        QVERIFY(QFile::remove(root.filePath("state/news-gentoo.unread")));
+        QVERIFY(root.mkpath("state/news-gentoo.unread"));
+        QVERIFY2(loadNews(source, items, error), qPrintable(error));
+        QCOMPARE(items.size(), 3);
+        for (const auto &article : items)
+            QVERIFY(!article.read);
+
+        // Actual article failures remain fatal; the last good snapshot is kept.
+        QVERIFY(put(root.filePath("news/2026-01-02-second/2026-01-02-second.en.txt"), "invalid"));
         QVERIFY(!loadNews(source, items, error));
-        QCOMPARE(items.size(), 2);
+        QCOMPARE(items.size(), 3);
     }
 
     void emptyState()
