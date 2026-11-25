@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Arran Ubels <arran4@gmail.com>
+# SPDX-License-Identifier: BSD-2-Clause
+
+name: Publish experimental v0.1.1
+on:
+  push:
+    branches: [release/v0.1.1]
+    paths: ['.github/workflows/release-v0.1.1.yml']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_SHA: "7c8dc0a1da9026b25e48aa5ca97221b0fa782904"
+    steps:
+      - name: Publish source prerelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v0.1.1 >/dev/null 2>&1; then
+            echo 'Release already exists'
+            exit 0
+          fi
+          gh release create v0.1.1 --target "$RELEASE_SHA" --prerelease \
+            --title "v0.1.1 — resource initialization fix" \
+            --notes "Fix initial resource synchronization and friendly account name, advertise collection MIME type, and document the account selection screenshot. Includes ECM build fix and upstream-compatible licensing. Source only; runtime message synchronization remains unverified."
