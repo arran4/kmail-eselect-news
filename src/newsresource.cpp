@@ -10,13 +10,23 @@
 #include <Akonadi/Item>
 #include <Akonadi/ResourceBase>
 #include <QHash>
+#include <QTimer>
 
 class NewsResource final : public Akonadi::ResourceBase
 {
     Q_OBJECT
 
 public:
-    explicit NewsResource(const QString &id) : Akonadi::ResourceBase(id) {}
+    explicit NewsResource(const QString &id) : Akonadi::ResourceBase(id)
+    {
+        // A new resource has no collection for Akonadi's periodic polling yet.
+        // Defer the initial full sync until initialization has completed.
+        QTimer::singleShot(0, this, [this] {
+            if (name().isEmpty() || name() == identifier())
+                setName(QStringLiteral("Gentoo News"));
+            synchronize();
+        });
+    }
 
 protected:
     void retrieveCollections() override
@@ -32,7 +42,7 @@ protected:
         collection.setParentCollection(Akonadi::Collection::root());
         collection.setRemoteId(source.repository);
         collection.setName(QStringLiteral("Gentoo News (%1)").arg(source.repository));
-        collection.setContentMimeTypes({KMime::Message::mimeType()});
+        collection.setContentMimeTypes({Akonadi::Collection::mimeType(), KMime::Message::mimeType()});
         collection.setRights(Akonadi::Collection::ReadOnly);
         Akonadi::CachePolicy policy;
         policy.setInheritFromParent(false);
