@@ -18,6 +18,8 @@ sudo emerge --ask kde-apps/kmail-eselect-news
 
 Close KDE PIM applications, run `akonadictl restart` as your desktop user, then add **Gentoo News** in KMail's receiving-account settings.
 
+![KMail Configure Account dialog with Gentoo News selected](screenshots/kmail-configure-account.png)
+
 For other packaging environments or development builds, see [building from source](#building-from-source). For checking the installed resource, see [testing on Gentoo](#testing-the-installed-resource).
 
 ## Behaviour and boundaries
@@ -37,12 +39,6 @@ For other packaging environments or development builds, see [building from sourc
 `NewsResource : Akonadi::ResourceBase` implements collection discovery, item synchronization, and batch payload retrieval. `NewsSource` and `loadNews` implement the independent filesystem backend; `NewsArticle::message` converts each record to a KMime message. The resource is its own process registered via a desktop metadata file.
 
 References: [GLEP 42](https://www.gentoo.org/glep/glep-0042.html), [Akonadi ResourceBase](https://github.com/KDE/akonadi/blob/master/src/agentbase/resourcebase.h), [KDE Maildir resource](https://github.com/KDE/kdepim-runtime/tree/master/resources/maildir).
-
-## Account registration
-
-The screenshot below records the resource registered in KMail's Receiving settings during the initial Gentoo host test. It shows the pre-fix internal account identifier and Ready status, not a successful mail synchronization.
-
-![KMail Receiving settings showing the registered Gentoo News resource](screenshots/kmail-receiving.png)
 
 ## Testing the installed resource
 
