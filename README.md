@@ -32,22 +32,19 @@ sudo emerge --ask app-eselect/eselect-repository
 eselect repository list
 ```
 
-Enable the required repositories if not already configured. The main `gentoo` repository is part of a normal Gentoo installation; the overlay additionally declares `guru` and `hyproverlay` as masters.
+Enable the overlay:
 
 ```sh
-sudo eselect repository enable guru
-sudo eselect repository enable hyproverlay
 sudo eselect repository enable arrans-overlay
 ```
 
-If a repository is not in the eselect repository index, add it explicitly instead of enabling it:
+Alternatively, if it is not in the eselect repository index, add it directly:
 
 ```sh
-sudo eselect repository add hyproverlay git https://codeberg.org/hyproverlay/hyproverlay.git
 sudo eselect repository add arrans-overlay git https://github.com/arran4/arrans_overlay.git
 ```
 
-Only run the add commands for repositories that were not successfully enabled. See the [overlay's setup instructions](https://github.com/arran4/arrans_overlay/blob/main/readme.md) and [master repository configuration](https://github.com/arran4/arrans_overlay/blob/main/metadata/layout.conf).
+See the [overlay's setup instructions](https://github.com/arran4/arrans_overlay/blob/main/readme.md) for repository-specific configuration.
 
 Synchronize the repositories after adding them:
 
