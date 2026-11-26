@@ -7,6 +7,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0 OR LGPL-2.1-or-later
 
 Read Gentoo and overlay news directly in KMail using a native KDE PIM 6 Akonadi resource. News notices appear as ordinary plain-text messages in their own account, with the original title, publication date and article text. No IMAP server, mail export or background root service is needed.
 
+![Gentoo News in KMail, with repository folders, message list and article preview](screenshots/kmail-gentoo-news.png)
+
 ## Features
 
 - A single **Gentoo News** account, with a folder for each configured Portage repository.
@@ -21,23 +23,52 @@ Requires Gentoo with a working KDE PIM 6 / Akonadi and KMail installation.
 
 ### From the public overlay (recommended)
 
-The package is available in [arran4/arrans_overlay](https://github.com/arran4/arrans_overlay) (Portage repository name `arrans-overlay`). If it is not already configured, install `eselect-repository` and enable the overlay:
+The package is available in [arran4/arrans_overlay](https://github.com/arran4/arrans_overlay), whose Portage repository name is `arrans-overlay`. If you already use this overlay, skip directly to installing the package.
+
+For a new overlay setup, install the repository management module:
 
 ```sh
 sudo emerge --ask app-eselect/eselect-repository
+eselect repository list
+```
+
+Enable the required repositories if not already configured. The main `gentoo` repository is part of a normal Gentoo installation; the overlay additionally declares `guru` and `hyproverlay` as masters.
+
+```sh
+sudo eselect repository enable guru
+sudo eselect repository enable hyproverlay
 sudo eselect repository enable arrans-overlay
 ```
 
-The overlay currently requires the `gentoo`, `guru` and `hyproverlay` repositories as masters. Ensure they are configured and synchronized first (see the [overlay setup instructions](https://github.com/arran4/arrans_overlay/blob/main/readme.md) and [repository configuration](https://github.com/arran4/arrans_overlay/blob/main/metadata/layout.conf)). Do not re-enable repositories already configured on your system.
-
-Then install the package:
+If a repository is not in the eselect repository index, add it explicitly instead of enabling it:
 
 ```sh
-sudo emaint sync -r arrans-overlay
+sudo eselect repository add hyproverlay git https://codeberg.org/hyproverlay/hyproverlay.git
+sudo eselect repository add arrans-overlay git https://github.com/arran4/arrans_overlay.git
+```
+
+Only run the add commands for repositories that were not successfully enabled. See the [overlay's setup instructions](https://github.com/arran4/arrans_overlay/blob/main/readme.md) and [master repository configuration](https://github.com/arran4/arrans_overlay/blob/main/metadata/layout.conf).
+
+Synchronize the repositories after adding them:
+
+```sh
+sudo emerge --sync
+```
+
+For an already configured overlay, `sudo emaint sync -r arrans-overlay` updates just that repository. Install the package with:
+
+```sh
 sudo emerge --ask kde-apps/kmail-eselect-news::arrans-overlay
 ```
 
-The package is currently keyworded `~amd64`. If Portage reports a keyword mask, accept `~amd64` specifically for `kde-apps/kmail-eselect-news::arrans-overlay` using your normal package.accept_keywords configuration or review Portage's autounmask suggestions. No private repository credentials are needed.
+The package is currently keyworded `~amd64`. If Portage reports a keyword mask, accept `~amd64` specifically for `kde-apps/kmail-eselect-news::arrans-overlay` using your normal package.accept_keywords configuration or review Portage's autounmask suggestions. No private repository credentials are needed. To let Portage propose and apply the necessary keyword changes, use:
+
+```sh
+sudo emerge --ask --verbose kde-apps/kmail-eselect-news::arrans-overlay \
+    --autounmask --autounmask-write --autounmask-continue
+```
+
+Review any proposed changes before accepting them.
 
 ### Enable the account
 
@@ -50,7 +81,7 @@ The package is currently keyworded `~amd64`. If Portage reports a keyword mask, 
 
 Already using Gentoo News from the private development overlay? Install the public package using the repository-qualified command above. Keep the existing KMail account; do not remove and recreate it.
 
-For source builds, development or testing, see [CONTRIBUTING.md](CONTRIBUTING.md). Source archives are available under [Releases](https://github.com/arran4/kmail-eselect-news/releases).
+For source builds, see [Building from source](#building-from-source). Source archives are available under [Releases](https://github.com/arran4/kmail-eselect-news/releases).
 
 ## Using Gentoo News
 
@@ -80,13 +111,42 @@ Portage's `.skip` is previously queued history, not a list of irrelevant article
 
 Use KMail's Check Mail or folder synchronization to refresh. The resource also requests a 15-minute Akonadi polling interval. Repositories with no news have empty folders. English news is supported currently.
 
+## How it works
+
+Gentoo News runs as a separate native Akonadi resource, registered by its desktop metadata file. The executable is `akonadi_eselect_news_resource`. It does not run an IMAP server or maintain a second mail store outside Akonadi.
+
+### News discovery and synchronization
+
+- Repository names come from `portageq get_repos /`; `portageq get_repo_path / <repository>` resolves each repository independently.
+- English GLEP 42 articles are read from `metadata/news/<id>/<id>.en.txt` in each repository. Title becomes the subject, the date becomes the message date, and the complete original article (including its metadata and authors) becomes the UTF-8 text body.
+- Read, unread and previously queued IDs come from `/var/lib/gentoo/news/news-<repository>.read`, `.unread` and `.skip`. Each file is read independently; valid entries survive malformed lines. Missing files in an accessible state directory are treated as empty.
+- The repository name plus news ID forms the stable Akonadi remote ID and the basis for the synthetic Message-ID. Article edits and state changes update the message revision. An article removed from the repository is removed on the next successful synchronization; clearing Portage state alone does not remove it.
+- An inaccessible repository or malformed article fails the affected synchronization rather than treating it as an empty mailbox. An incomplete or unreadable state file does not hide articles. No write access to the source is required.
+
+### Optional configuration
+
+No configuration file is necessary for normal use. Advanced users may override discovery using `${XDG_CONFIG_HOME:-$HOME/.config}/kmail-eselect-news.ini`:
+
+```ini
+[General]
+repository=gentoo
+newsDirectory=/var/db/repos/gentoo/metadata/news
+stateDirectory=/var/lib/gentoo/news
+```
+
+All settings are optional. Omit `repository` and `newsDirectory` for automatic discovery of every configured repository; `repository` restricts discovery to one repository, while `newsDirectory` explicitly selects a source directory for that repository (defaulting to gentoo if the repository is not supplied). `stateDirectory` defaults to `/var/lib/gentoo/news`. The settings currently apply to every instance of the resource for the desktop user. Restart the resource after changing them.
+
+The resource is implemented in C++ using Qt 6, KMime and Akonadi. `NewsResource` manages the collection tree and item synchronization; `NewsSource` / `loadNews` handle local filesystem discovery; `NewsArticle::message` converts articles into MIME messages. See [GLEP 42](https://www.gentoo.org/glep/glep-0042.html) for the Gentoo news format.
+
 ## Troubleshooting
 
 If the account type is missing after installation, close KDE PIM applications and restart Akonadi as described above. If the account is present but folders or messages are missing, synchronize it and check that the repository and news files are readable by your desktop user.
 
 ```sh
+command -v akonadi_eselect_news_resource
 akonadictl status
 portageq get_repos /
+portageq get_repo_path / gentoo
 eselect news list
 ls -l /var/lib/gentoo/news/
 journalctl --user -b --no-pager | grep -Ei 'akonadi|eselect.news' | tail -n 100
@@ -105,6 +165,45 @@ sudo emerge --ask --depclean kde-apps/kmail-eselect-news
 ```
 
 If the package is explicitly selected in your world file, deselect it first with `sudo emerge --ask --deselect kde-apps/kmail-eselect-news`. Close KDE PIM applications and restart Akonadi if necessary. System news remains untouched.
+
+## Building from source
+
+### Requirements
+
+- A C++20 compiler, CMake 3.22 or newer, and a build tool.
+- KDE Extra CMake Modules (ECM), available as `kde-frameworks/extra-cmake-modules` on Gentoo.
+- Qt 6 development libraries (Core, and Test for automated tests).
+- KDE PIM 6 Akonadi development libraries and KMime (either KF6Mime or KPim6Mime CMake package, matching your installed stack).
+- A running KDE PIM 6 session with Akonadi MIME support and KMail for live testing.
+- A local Gentoo repository (Portage news state is optional), or an isolated test fixture.
+
+Install dependencies through your distribution's package manager. No particular checkout path, CMake generator, or release tag is required.
+
+### Configure, build and test
+
+From the source directory:
+
+```sh
+cmake -S . -B build -DBUILD_TESTING=ON &&
+cmake --build build &&
+ctest --test-dir build --output-on-failure
+```
+
+Tests use temporary directories and do not touch system news state.
+
+### Manual installation and removal
+
+Only use manual installation if you are not managing the resource with a package manager. Configure the installation prefix to match the running Akonadi installation and ensure it can discover the executable and agent metadata. For example, on a system using /usr:
+
+```sh
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr &&
+cmake --build build &&
+DESTDIR="$PWD/build/stage" cmake --install build
+```
+
+Review the staged files. If there is no package-managed installation and you want to install system-wide, run `sudo cmake --install build`. Never run the resource or Akonadi as root. Follow the [troubleshooting instructions](#troubleshooting).
+
+Before removing a manual installation, remove the resource instance from KMail. Review `build/install_manifest.txt` and remove only files from this manual installation, not package-managed files. Restart Akonadi if needed. Do not delete its database.
 
 ## Project status
 
@@ -125,4 +224,3 @@ Thanks to the KDE PIM community for Akonadi and KMime. The [Maildir resource](ht
 
 Per-file SPDX notices and complete license texts follow REUSE conventions. Third-party libraries and news articles read at runtime retain their respective licenses and copyright.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for architecture, building, test fixtures and upstream adoption notes.
